@@ -1,7 +1,9 @@
 # import the pygame module, so you can use it
 import pygame
 import numpy
-import thread
+import matplotlib.pyplot as plt
+from guizero import App, PushButton, Slider
+
 
 version = "0.02"
 
@@ -9,7 +11,7 @@ l_in_size = 11;
 l1size = 20;
 l_out_size = 6;
 
-l_hid_sizes = [11, 6];
+l_hid_sizes = [8, 6, 6, 6];
 
 class Creature:
     def __init__(self, x, y):
@@ -49,18 +51,20 @@ class Creature:
 
     def render(self, screen):
         if self.alive:
+            pygame.draw.line(screen, (255, 255, 255), (int(self.x), int(self.y)), (int(self.x + 100 * numpy.cos(self.a)), int(self.y + 100 * numpy.sin(self.a))))
             pygame.draw.circle(screen, (self.color[0], self.color[1], self.color[2]), (int(self.x), int(self.y)), int((self.energy / 100) * 10))
-            pygame.draw.circle(screen, (255, 255, 255), (int(self.x + 20 * numpy.cos(self.a)), int(self.y + 20 * numpy.sin(self.a))), 0)
-            pygame.draw.circle(screen, (255, 255, 255), (int(self.x + 40 * numpy.cos(self.a)), int(self.y + 40 * numpy.sin(self.a))), 0)
+            pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 20 * numpy.cos(self.a)), int(self.y + 20 * numpy.sin(self.a))), 3)
+            pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 60 * numpy.cos(self.a)), int(self.y + 60 * numpy.sin(self.a))), 3)
+            pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 100 * numpy.cos(self.a)), int(self.y + 100 * numpy.sin(self.a))), 3)
 
     def network_tick(self):
         self.l0_out[0] = self.farAhead[0]
         self.l0_out[1] = self.sound[1]
-        self.l0_out[2] = self.a
-        self.l0_out[3] = self.ahead[2]
-        self.l0_out[4] = self.ahead[1] #numpy.sin(self.life_len * 10)
+        self.l0_out[2] = self.a % (numpy.pi * 2)
+        self.l0_out[3] = self.x / 512
+        self.l0_out[4] = self.y / 512 #numpy.sin(self.life_len * 10)
         self.l0_out[5] = self.ahead[0]
-        self.l0_out[6] = self.farAhead[2]
+        self.l0_out[6] = self.farFarAhead[0]
         self.l0_out[7] = self.energy
         self.l0_out[8] = self.m0
         self.l0_out[9] = self.m1
@@ -84,7 +88,7 @@ class Creature:
         # self.color[1] = numpy.clip(self.l2_out[4] * 255, 0, 255)
         # self.color[2] = numpy.clip(self.l2_out[5] * 255, 0, 255)
         self.energy -= abs(self.l2_out[1]) * 0.9
-        self.move(self.l2_out[0])
+        self.move(self.l2_out[0] * 5)
         self.m0 = self.l2_out[3]
         self.m1 = self.l2_out[4]
         self.m2 = self.l2_out[5]
@@ -99,7 +103,7 @@ class Creature:
         self.y += abs(speed) * numpy.sin(self.a)
         self.x = numpy.clip(self.x, 0, 511)
         self.y = numpy.clip(self.y, 0, 511)
-        self.energy += abs(speed) * 0.4
+        self.energy += abs(speed / 5) * 0.4
 
     def update(self):
         global updates
@@ -109,7 +113,8 @@ class Creature:
             self.life_len += 0.01
             self.on = mapAt(self.x, self.y);
             self.ahead = mapAt(int(self.x + 20 * numpy.cos(self.a)), int(self.y + 20 * numpy.sin(self.a)))
-            self.farAhead = mapAt(int(self.x + 40 * numpy.cos(self.a)), int(self.y + 40 * numpy.sin(self.a)))
+            self.farAhead = mapAt(int(self.x + 60 * numpy.cos(self.a)), int(self.y + 60 * numpy.sin(self.a)))
+            self.farFarAhead = mapAt(int(self.x + 100 * numpy.cos(self.a)), int(self.y + 100 * numpy.sin(self.a)))
             self.sound = soundAt(self.x, self.y)
             if self.on[2] > 100:
                 self.energy += 0.6999
@@ -169,7 +174,13 @@ def coolRand(min, max):
     return abs((numpy.random.random_sample() - numpy.random.random_sample()) * 3) * (max / 3 - min) + min
 
 def getBest(batch, n):
-    tmp = sorted(batch, key=lambda x: x.life_len, reverse=True)
+    tmp = sorted(batch, key=lambda x: x.life_len + x.energy / 50, reverse=True)
+    perf = []
+    for i in tmp:
+        perf.append(i.life_len + i.energy / 50)
+    plt.clf()
+    plt.plot(perf)
+    plt.draw()
     return tmp[:n]
 
 def growPopulation(batch, n):
@@ -178,8 +189,19 @@ def growPopulation(batch, n):
     for i in batch:
         # print("#: " + str(c) + ": " + str(i.life_len))
         c += 1
+    extr = []
+    for i in range(len(batch)):
+        extr.append(0)
     for i in range(n):
-        tmp.append(mate(batch[int(coolRand(0, len(batch) - 1))], batch[int(coolRand(0, len(batch) - 1))]))
+        rand1 = coolRand(0, len(batch) - 1)
+        rand2 = coolRand(0, len(batch) - 1)
+        tmp.append(mate(batch[int(rand2)], batch[int(rand1)]))
+        extr[int(rand1)] += 1
+        extr[int(rand2)] += 1
+    plt.ion()
+    plt.plot(extr)
+    plt.draw()
+    plt.pause(0.05)
     return tmp
 
 def median(batch):
@@ -206,21 +228,30 @@ def main():
     global frame_cnt
     global version
     global soundMap
+    global fig
     print("SmartDots Version: " + version + "\nSeed: " + str(seed))
     numpy.random.seed(seed);
     pygame.init()
+    pygame.font.init()
     logo = pygame.image.load("che.png")
     pygame.display.set_icon(logo)
     pygame.display.set_caption("PiVerse")
 
-    screen = pygame.display.set_mode((512, 512))
+    x = numpy.linspace(0, 2, 100)
 
+    plt.ion()
+    plt.plot([1, 2, 3])
+
+    font = pygame.font.SysFont('Comic Sans MS', 30)
+    screen = pygame.display.set_mode((512, 512))
+    # gui = App(title="PyVerse " + version)
+    # gui.display()
     soundMap.set_colorkey((255, 255, 255))
 
     running = True
     gen_cnt = 0
     cur_gen = []
-    for i in range(0, 500):
+    for i in range(0, 300):
         alive += 1
         cur_gen.append(Creature(numpy.random.randint(511), numpy.random.randint(511)))
 
@@ -236,14 +267,15 @@ def main():
                     skip = not skip
                 if event.key == pygame.K_k:
                     stop = True
+                if event.key == pygame.K_r:
+                    bg = pygame.image.load("map.png")
 
 
-
-        if alive <= 30 or stop:
-            best = getBest(cur_gen, 350)
+        if alive <= 250 or stop:
+            best = getBest(cur_gen, 300)
             print("Median: " + str(median(cur_gen)))
-            cur_gen = growPopulation(best, 500)
-            alive = 500
+            cur_gen = growPopulation(best, 300)
+            alive = 300
             stop = False
 
             soundMap.fill((255, 255, 255, 0.5), special_flags= pygame.BLEND_MULT);
@@ -260,6 +292,11 @@ def main():
             if i.alive:
                 if skip and frame_cnt % 15 == 0 or not skip:
                     i.render(screen)
+
+        if skip and frame_cnt % 15 == 0 or not skip:
+            text_alive = font.render('Alive: ' + str(alive), False, (255, 255, 255))
+            screen.blit(text_alive,(0,0))
+
         pygame.display.flip()
 
 # run the main function only if this module is executed as the main script

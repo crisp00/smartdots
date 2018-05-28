@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 from guizero import App, PushButton, Slider
 
 
-version = "0.02"
+version = "0.03"
 
 l_in_size = 11;
 l1size = 20;
 l_out_size = 6;
 
-l_hid_sizes = [8, 6, 6, 6];
+l_hid_sizes = [11, 8];
 
 class Creature:
     def __init__(self, x, y):
@@ -27,6 +27,7 @@ class Creature:
         self.life_len = 0
         self.health = 100
         self.energy = 100
+        self.speed = 0
         self.l0_out = numpy.arange(l_in_size, dtype=float);
         self.l_hid = []
         self.l1_whts = []
@@ -50,19 +51,22 @@ class Creature:
         self.l2_out = numpy.arange(l_out_size, dtype=float)
 
     def render(self, screen):
+        global car
         if self.alive:
             pygame.draw.line(screen, (255, 255, 255), (int(self.x), int(self.y)), (int(self.x + 100 * numpy.cos(self.a)), int(self.y + 100 * numpy.sin(self.a))))
-            pygame.draw.circle(screen, (self.color[0], self.color[1], self.color[2]), (int(self.x), int(self.y)), int((self.energy / 100) * 10))
+            rotated = pygame.transform.rotate(car, - numpy.rad2deg(self.a))
+            screen.blit(rotated, (int(self.x - rotated.get_width() / 2), int(self.y - rotated.get_height() / 2)))
+            pygame.draw.circle(screen, (self.color[0], self.color[1], self.color[2], 100), (int(self.x), int(self.y)), int((self.energy / 100) * 10))
             pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 20 * numpy.cos(self.a)), int(self.y + 20 * numpy.sin(self.a))), 3)
             pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 60 * numpy.cos(self.a)), int(self.y + 60 * numpy.sin(self.a))), 3)
             pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 100 * numpy.cos(self.a)), int(self.y + 100 * numpy.sin(self.a))), 3)
 
     def network_tick(self):
         self.l0_out[0] = self.farAhead[0]
-        self.l0_out[1] = self.sound[1]
+        self.l0_out[1] = self.speed
         self.l0_out[2] = self.a % (numpy.pi * 2)
-        self.l0_out[3] = self.x / 512
-        self.l0_out[4] = self.y / 512 #numpy.sin(self.life_len * 10)
+        self.l0_out[3] = self.x / 400 - 1
+        self.l0_out[4] = self.y / 400 - 1 #numpy.sin(self.life_len * 10)
         self.l0_out[5] = self.ahead[0]
         self.l0_out[6] = self.farFarAhead[0]
         self.l0_out[7] = self.energy
@@ -88,27 +92,30 @@ class Creature:
         # self.color[1] = numpy.clip(self.l2_out[4] * 255, 0, 255)
         # self.color[2] = numpy.clip(self.l2_out[5] * 255, 0, 255)
         self.energy -= abs(self.l2_out[1]) * 0.9
-        self.move(self.l2_out[0] * 5)
+        # self.move(self.l2_out[0] * 5)
+        self.speed += self.l2_out[0] * 5
+        self.speed = numpy.clip(self.speed, -3, 10)
+        self.energy -= abs(self.l2_out[0] / 2)
         self.m0 = self.l2_out[3]
         self.m1 = self.l2_out[4]
         self.m2 = self.l2_out[5]
-        pygame.draw.circle(soundMap, ((self.m0 + 1) * 127, (self.m1 + 1) * 127, (self.m2 + 1) * 127, 30), (int(self.x), int(self.y)), 100)
-
+        pygame.draw.circle(soundMap, ((self.m0 + 1) * 127, (self.m1 + 1) * 127, (self.m2 + 1) * 127, 60), (int(self.x), int(self.y)), 100)
 
 
     def move(self, speed):
-        speed = abs(speed)
         # self.color[1] = numpy.clip(abs(speed) * 300, 0, 255)
-        self.x += abs(speed) * numpy.cos(self.a)
-        self.y += abs(speed) * numpy.sin(self.a)
-        self.x = numpy.clip(self.x, 0, 511)
-        self.y = numpy.clip(self.y, 0, 511)
-        self.energy += abs(speed / 5) * 0.4
+        self.x += speed * numpy.cos(self.a)
+        self.y += speed * numpy.sin(self.a)
+        self.x = numpy.clip(self.x, 0, 799)
+        self.y = numpy.clip(self.y, 0, 799)
+        self.energy += abs(speed / 20)
+
 
     def update(self):
         global updates
         global alive
         updates += 1
+        self.move(self.speed)
         if self.alive:
             self.life_len += 0.01
             self.on = mapAt(self.x, self.y);
@@ -130,18 +137,19 @@ class Creature:
 
 
 bg = pygame.image.load("map.png")
+car = pygame.transform.rotate(pygame.image.load("car.png"), 0)
 
 def mapAt(x, y):
-    return bg.get_at((int(numpy.clip(x, 0, 511)), int(numpy.clip(y, 0, 511))))
+    return bg.get_at((int(numpy.clip(x, 0, 799)), int(numpy.clip(y, 0, 799))))
 
 def soundAt(x, y):
-    return soundMap.get_at((int(numpy.clip(x, 0, 511)), int(numpy.clip(y, 0, 511))))
+    return soundMap.get_at((int(numpy.clip(x, 0, 799)), int(numpy.clip(y, 0, 799))))
 
 def sigmoid(x):
     return 1 / (1 + numpy.exp(-x))
 
 def mate(a, b):
-    c = Creature(numpy.random.randint(511), numpy.random.randint(511))
+    c = Creature(numpy.random.randint(799), numpy.random.randint(799))
     i = 0
     prevlayer = l_in_size
     for size in l_hid_sizes:
@@ -176,9 +184,15 @@ def coolRand(min, max):
 def getBest(batch, n):
     tmp = sorted(batch, key=lambda x: x.life_len + x.energy / 50, reverse=True)
     perf = []
+    maxperf = int((tmp[0].life_len + tmp[0].energy / 50) + 1)
+    perfdistr = []
+    for i in range(0, maxperf):
+        perfdistr.append(0)
     for i in tmp:
+        perfdistr[int(i.life_len + i.energy / 50)] += 1
         perf.append(i.life_len + i.energy / 50)
     plt.clf()
+    plt.plot(perfdistr)
     plt.plot(perf)
     plt.draw()
     return tmp[:n]
@@ -213,7 +227,7 @@ def median(batch):
     return tmp / c
 
 
-soundMap = pygame.Surface([512,512], pygame.SRCALPHA, 32)
+soundMap = pygame.Surface([800,800], pygame.SRCALPHA, 32)
 alive = 0
 updates = 0
 
@@ -228,6 +242,7 @@ def main():
     global frame_cnt
     global version
     global soundMap
+    global car
     global fig
     print("SmartDots Version: " + version + "\nSeed: " + str(seed))
     numpy.random.seed(seed);
@@ -237,13 +252,16 @@ def main():
     pygame.display.set_icon(logo)
     pygame.display.set_caption("PiVerse")
 
+    pause = False
+
+
     x = numpy.linspace(0, 2, 100)
 
     plt.ion()
     plt.plot([1, 2, 3])
 
     font = pygame.font.SysFont('Comic Sans MS', 30)
-    screen = pygame.display.set_mode((512, 512))
+    screen = pygame.display.set_mode((800, 800))
     # gui = App(title="PyVerse " + version)
     # gui.display()
     soundMap.set_colorkey((255, 255, 255))
@@ -251,9 +269,12 @@ def main():
     running = True
     gen_cnt = 0
     cur_gen = []
-    for i in range(0, 300):
+    for i in range(0, 100):
         alive += 1
-        cur_gen.append(Creature(numpy.random.randint(511), numpy.random.randint(511)))
+        cur_gen.append(Creature(numpy.random.randint(799), numpy.random.randint(799)))
+
+    car = car.convert_alpha()
+    # car.set_colorkey((254,0,0))
 
     skip = False
     stop = False
@@ -269,24 +290,28 @@ def main():
                     stop = True
                 if event.key == pygame.K_r:
                     bg = pygame.image.load("map.png")
+                if event.key == pygame.K_p:
+                    pause = not pause
 
 
-        if alive <= 250 or stop:
-            best = getBest(cur_gen, 300)
+
+        if alive <= 10 or stop:
+            best = getBest(cur_gen, 80)
             print("Median: " + str(median(cur_gen)))
-            cur_gen = growPopulation(best, 300)
-            alive = 300
+            cur_gen = growPopulation(best, 100)
+            alive = 100
             stop = False
 
-            soundMap.fill((255, 255, 255, 0.5), special_flags= pygame.BLEND_MULT);
 
         if skip and frame_cnt % 15 == 0 or not skip:
             screen.blit(bg, (0, 0))
             screen.blit(soundMap, (0, 0))
 
-        for i in cur_gen:
-            if i.alive:
-                i.update()
+        soundMap.fill((5, 5, 5, 5), special_flags=pygame.BLEND_SUB);
+        if not pause:
+            for i in cur_gen:
+                if i.alive:
+                    i.update()
 
         for i in cur_gen:
             if i.alive:

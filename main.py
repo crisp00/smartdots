@@ -1,8 +1,15 @@
 # import the pygame module, so you can use it
 import pygame
+import pymunk
+import pymunk.pygame_util
 import numpy
+np = numpy
 import matplotlib.pyplot as plt
-from guizero import App, PushButton, Slider
+import copy
+from pygame.locals import *
+
+
+
 
 
 version = "0.03"
@@ -13,11 +20,25 @@ l_out_size = 6;
 
 l_hid_sizes = [11, 8];
 
+def create_car(space, position, color):
+    car = pymunk.Body(300, 10000)
+    car.position = position[0], position[1]
+    car_shape = pymunk.Poly.create_box(car, size=(10, 30))
+    car_shape.color = color
+    car_shape.friction = 0.1
+    space.add(car, car_shape)
+    car.friction = 0.01
+    return car, car_shape
+
+
 class Creature:
     def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.a = 1
+        self.car, self.shape = create_car(space, (x, y), (numpy.random.randint(0, 255), numpy.random.randint(0, 255), numpy.random.randint(0, 255)))
+        self.car.angle = numpy.random.random_sample() * np.pi * 2
+        self.position = self.car.position
+        self.x = self.position.x
+        self.y = self.position.y
+        self.a = self.car.angle + np.pi / 2
         self.m0 = 0
         self.m1 = 0
         self.m2 = 0
@@ -54,8 +75,8 @@ class Creature:
         global car
         if self.alive:
             pygame.draw.line(screen, (255, 255, 255), (int(self.x), int(self.y)), (int(self.x + 100 * numpy.cos(self.a)), int(self.y + 100 * numpy.sin(self.a))))
-            rotated = pygame.transform.rotate(car, - numpy.rad2deg(self.a))
-            screen.blit(rotated, (int(self.x - rotated.get_width() / 2), int(self.y - rotated.get_height() / 2)))
+            # rotated = pygame.transform.rotate(car, - numpy.rad2deg(self.a))
+            # screen.blit(rotated, (int(self.x - rotated.get_width() / 2), int(self.y - rotated.get_height() / 2)))
             pygame.draw.circle(screen, (self.color[0], self.color[1], self.color[2], 100), (int(self.x), int(self.y)), int((self.energy / 100) * 10))
             pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 20 * numpy.cos(self.a)), int(self.y + 20 * numpy.sin(self.a))), 3)
             pygame.draw.circle(screen, (0, 0, 0), (int(self.x + 60 * numpy.cos(self.a)), int(self.y + 60 * numpy.sin(self.a))), 3)
@@ -63,7 +84,7 @@ class Creature:
 
     def network_tick(self):
         self.l0_out[0] = self.farAhead[0]
-        self.l0_out[1] = self.speed
+        self.l0_out[1] = self.car.velocity.length
         self.l0_out[2] = self.a % (numpy.pi * 2)
         self.l0_out[3] = self.x / 400 - 1
         self.l0_out[4] = self.y / 400 - 1 #numpy.sin(self.life_len * 10)
@@ -87,34 +108,49 @@ class Creature:
         for i in range(l_out_size):
             self.l2_out[i] = -1 + 2 * sigmoid(sum(self.l_hid[len(l_hid_sizes) - 1]["out"] * self.l2_whts[i]) + self.l2_bias[i])
 
-        self.a += self.l2_out[1]
+        vel = self.car.velocity
+        vx = vel[0]
+        vy = vel[1]
+        nvel = copy.copy(vel)
+        nvel.angle = self.car.angle - nvel.angle
+        self.car.apply_force_at_local_point((-nvel.x * 30, 0), (0, 0))
+
+        direction = self.l2_out[1]
+        self.car.angle = (self.car.angle + direction * nvel.y / 25) % (2 * np.pi)
+
+        space.reindex_shapes_for_body(self.car)
         # self.color[0] = numpy.clip(self.l2_out[3] * 255, 0, 255)
         # self.color[1] = numpy.clip(self.l2_out[4] * 255, 0, 255)
         # self.color[2] = numpy.clip(self.l2_out[5] * 255, 0, 255)
         self.energy -= abs(self.l2_out[1]) * 0.9
         # self.move(self.l2_out[0] * 5)
-        self.speed += self.l2_out[0] * 5
-        self.speed = numpy.clip(self.speed, -3, 10)
+        self.speed += self.l2_out[0]
+        self.speed = numpy.clip(self.speed, -1, 1)
         self.energy -= abs(self.l2_out[0] / 2)
         self.m0 = self.l2_out[3]
         self.m1 = self.l2_out[4]
         self.m2 = self.l2_out[5]
-        pygame.draw.circle(soundMap, ((self.m0 + 1) * 127, (self.m1 + 1) * 127, (self.m2 + 1) * 127, 60), (int(self.x), int(self.y)), 100)
+        # pygame.draw.circle(soundMap, ((self.m0 + 1) * 127, (self.m1 + 1) * 127, (self.m2 + 1) * 127, 60), (int(self.x), int(self.y)), 100)
 
 
     def move(self, speed):
-        # self.color[1] = numpy.clip(abs(speed) * 300, 0, 255)
-        self.x += speed * numpy.cos(self.a)
-        self.y += speed * numpy.sin(self.a)
-        self.x = numpy.clip(self.x, 0, 799)
-        self.y = numpy.clip(self.y, 0, 799)
-        self.energy += abs(speed / 20)
+        self.car.apply_force_at_local_point((0, 50 * speed), self.car.center_of_gravity + (0, 5))
+
+        # self.x += speed * numpy.cos(self.a)
+        # self.y += speed * numpy.sin(self.a)
+        # self.x = numpy.clip(self.x, 0, 799)
+        # self.y = numpy.clip(self.y, 0, 799)
+        self.energy += abs(speed / 4)
 
 
     def update(self):
         global updates
         global alive
         updates += 1
+        self.position = self.car.position
+        self.x = self.position.x
+        self.y = self.position.y
+        self.a = self.car.angle - np.pi / 2
         self.move(self.speed)
         if self.alive:
             self.life_len += 0.01
@@ -130,9 +166,10 @@ class Creature:
             if self.energy <= 0:
                 self.die()
                 alive -= 1
-        updates -= 1
+            updates -= 1
 
     def die(self):
+        space.remove(self.car, self.shape)
         self.alive = False
 
 
@@ -231,6 +268,10 @@ soundMap = pygame.Surface([800,800], pygame.SRCALPHA, 32)
 alive = 0
 updates = 0
 
+space = pymunk.Space()
+space.gravity = 0, 0
+space.damping = 0.97
+
 seed = numpy.random.randint(10000000)
 # seed = 78271
 # define a main function
@@ -244,12 +285,11 @@ def main():
     global soundMap
     global car
     global fig
+    global space
     print("SmartDots Version: " + version + "\nSeed: " + str(seed))
     numpy.random.seed(seed);
     pygame.init()
     pygame.font.init()
-    logo = pygame.image.load("che.png")
-    pygame.display.set_icon(logo)
     pygame.display.set_caption("PiVerse")
 
     pause = False
@@ -262,9 +302,13 @@ def main():
 
     font = pygame.font.SysFont('Comic Sans MS', 30)
     screen = pygame.display.set_mode((800, 800))
-    # gui = App(title="PyVerse " + version)
-    # gui.display()
     soundMap.set_colorkey((255, 255, 255))
+
+    clock = pygame.time.Clock()
+    draw_options = pymunk.pygame_util.DrawOptions(screen)
+    pymunk.pygame_util.positive_y_is_up = False
+
+    car1, shape1 = create_car(space, (0, 0), (255, 0, 0))
 
     running = True
     gen_cnt = 0
@@ -295,11 +339,14 @@ def main():
 
 
 
-        if alive <= 10 or stop:
-            best = getBest(cur_gen, 80)
+        if alive <= 0 or stop:
+            for i in cur_gen:
+                if i.alive:
+                    i.die()
+            best = getBest(cur_gen, 20)
             print("Median: " + str(median(cur_gen)))
-            cur_gen = growPopulation(best, 100)
-            alive = 100
+            cur_gen = growPopulation(best, 20)
+            alive = 20
             stop = False
 
 
@@ -313,6 +360,43 @@ def main():
                 if i.alive:
                     i.update()
 
+        ### MAN CAR ###
+        vel = car1.velocity
+        vx = vel[0]
+        vy = vel[1]
+        nvel = copy.copy(vel)
+        nvel.angle = car1.angle - nvel.angle
+        # print("Velocity:" + str(vel.get_angle()))
+        if not vx == 0:
+            tanAlpha = vy / vx
+            alpha = np.arctan(tanAlpha)
+            magnitude = vx / np.cos(alpha)
+            nAlpha = np.abs(car1.angle - alpha)
+            nx = magnitude * np.cos(nAlpha)
+            ny = magnitude * np.sin(nAlpha)
+            # print("Drift: " + str(nx))
+            car1.apply_force_at_local_point((-nx * 25, 0), (0, 0))
+
+        keys = pygame.key.get_pressed()
+        direction = 0
+        if keys[K_LEFT]:
+            direction -= 1
+        if keys[K_RIGHT]:
+            direction += 1
+        print(str(nvel.y) + " | " + str(car1.angle))
+        car1.angle = (car1.angle + direction * nvel.y / 30) % (2 * np.pi)
+        space.reindex_shapes_for_body(car1)
+        if keys[K_UP]:
+            car1.apply_force_at_local_point((0, 50), car1.center_of_gravity + (0, 5))
+        if keys[K_DOWN]:
+            car1.apply_force_at_local_point((0, -50), car1.center_of_gravity + (0, 5))
+
+        ### END MAN CAR ###
+
+
+        space.step(1)
+        space.debug_draw(draw_options)
+        clock.tick(50)
         for i in cur_gen:
             if i.alive:
                 if skip and frame_cnt % 15 == 0 or not skip:
